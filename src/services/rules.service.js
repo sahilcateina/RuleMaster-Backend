@@ -1,243 +1,61 @@
-import {
-    supabase
-} from '../config/supabaseClient';
-
-export const createRule = async (ruleData) => {
-    const {
-        name,
-        description,
-        priority,
-        is_active,
-        userId,
-        conditions,
-        actions
-    } = ruleData;
-
-    const {
-        data: rule,
-        error: ruleError
-    } = await supabase
-        .from('rules')
-        .insert([{
-            name,
-            description,
-            priority,
-            is_active,
-            user_id: userId
-        }])
-        .select()
-        .single();
-
-    if (ruleError) {
-        throw ruleError;
-    }
-
-    const ruleId = rule.id;
-
-    if (conditions && conditions.length > 0) {
-        const conditionsWithRuleId = conditions.map(condition => ({
-            ...condition,
-            rule_id: ruleId
-        }));
-        const {
-            error: conditionsError
-        } = await supabase
-            .from('rule_conditions')
-            .insert(conditionsWithRuleId);
-
-        if (conditionsError) {
-            // You might want to consider rolling back the rule insertion here
-            throw conditionsError;
-        }
-    }
-
-    if (actions && actions.length > 0) {
-        const actionsWithRuleId = actions.map(action => ({
-            ...action,
-            rule_id: ruleId
-        }));
-        const {
-            error: actionsError
-        } = await supabase
-            .from('rule_actions')
-            .insert(actionsWithRuleId);
-
-        if (actionsError) {
-            // You might want to consider rolling back the rule and conditions insertion here
-            throw actionsError;
-        }
-    }
-
-    // To return the full rule object with nested conditions and actions,
-    // we'll fetch it after insertion. In a real transaction, you'd handle this differently.
-    // For simplicity here, we'll just return the created rule for now.
-    // A more robust solution would involve a database transaction and fetching the complete object within it.
-    const {
-        data: createdRule,
-        error: fetchError
-    } = await supabase
-        .from('rules')
-        .select('*, rule_conditions(*), rule_actions(*)')
-        .eq('id', ruleId)
-        .single();
-
-    if (fetchError) {
-        throw fetchError;
-    }
+const { Engine } = require('json-rules-engine');
+const rulesDAO = require('../Dao/rules.dao');
+const { v4: uuidv4 } = require('uuid');
+const NLPService = require('../services/nlp.service');
 
 
-    return createdRule;
+
+exports.parseAndSave = async (prompt, tenant_id) => {
+    const parsed = await NLPService.parseToRule(prompt);
+
+    const rule = {
+        id: uuidv4(),
+        tenant_id,
+        name: parsed.name,
+        description: parsed.description,
+        conditions: parsed.conditions,
+        actions: parsed.event,
+        priority: parsed.priority || 0,
+        is_active: true
+    };
+
+    const { data, error } = await rulesDAO.createRule(rule);
+    if (error) throw error;
+
+    return { rule: data };
 };
 
-export const getAllRules = async (userId) => {
-    const {
-        data: rules,
-        error
-    } = await supabase
-        .from('rules')
-        .select('*, rule_conditions(*), rule_actions(*)')
-        .eq('user_id', userId);
-
-    if (error) {
-        throw error;
-    }
-
-    return rules;
+exports.createRule = async (rule) => {
+    return await rulesDAO.createRule(rule);
 };
 
-export const updateRule = async (ruleId, updateData) => {
-    const {
-        conditions,
-        actions,
-        ...ruleUpdates
-    } = updateData;
-
-    // Start a "simulated" transaction. Supabase client doesn't have explicit transaction
-    // methods in the standard client library for complex operations like this across tables.
-    // A real-world scenario might require using Supabase Functions or a different library
-    // that supports transactions across multiple statements.
-    // Here, we'll perform operations sequentially and throw errors if any step fails.
-
-    // 1. Update rule details
-    const {
-        error: ruleError
-    } = await supabase
-        .from('rules')
-        .update(ruleUpdates)
-        .eq('id', ruleId);
-
-    if (ruleError) {
-        throw ruleError;
-    }
-
-    // 2. Update conditions (delete existing, insert new)
-    if (conditions !== undefined) {
-        const {
-            error: deleteConditionsError
-        } = await supabase
-            .from('rule_conditions')
-            .delete()
-            .eq('rule_id', ruleId);
-
-        if (deleteConditionsError) {
-            throw deleteConditionsError;
-        }
-
-        if (conditions.length > 0) {
-            const conditionsWithRuleId = conditions.map(condition => ({
-                ...condition,
-                rule_id: ruleId
-            }));
-            const {
-                error: insertConditionsError
-            } = await supabase
-                .from('rule_conditions')
-                .insert(conditionsWithRuleId);
-
-            if (insertConditionsError) {
-                throw insertConditionsError;
-            }
-        }
-    }
-
-    // 3. Update actions (delete existing, insert new)
-    if (actions !== undefined) {
-        const {
-            error: deleteActionsError
-        } = await supabase
-            .from('rule_actions')
-            .delete()
-            .eq('rule_id', ruleId);
-
-        if (deleteActionsError) {
-            throw deleteActionsError;
-        }
-
-        if (actions.length > 0) {
-            const actionsWithRuleId = actions.map(action => ({
-                ...action,
-                rule_id: ruleId
-            }));
-            const {
-                error: insertActionsError
-            } = await supabase
-                .from('rule_actions')
-                .insert(actionsWithRuleId);
-
-            if (insertActionsError) {
-                throw insertActionsError;
-            }
-        }
-    }
-
-    // Fetch and return the updated rule with nested conditions and actions
-    const {
-        data: updatedRule,
-        error: fetchError
-    } = await supabase
-        .from('rules')
-        .select('*, rule_conditions(*), rule_actions(*)')
-        .eq('id', ruleId)
-        .single();
-
-    if (fetchError) {
-        throw fetchError;
-    }
-
-    return updatedRule;
+exports.updateRule = async (id, updates) => {
+    return await rulesDAO.updateRule(id, updates);
 };
 
-
-export const updateRuleStatus = async (ruleId, isActive) => {
-    const {
-        data,
-        error
-    } = await supabase
-        .from('rules')
-        .update({
-            is_active: isActive
-        })
-        .eq('id', ruleId);
-
-    if (error) {
-        throw error;
-    }
-
-    return data;
+exports.deleteRule = async (id) => {
+    return await rulesDAO.deleteRule(id);
 };
 
-export const deleteRule = async (ruleId) => {
-    const {
-        data,
-        error
-    } = await supabase
-        .from('rules')
-        .delete()
-        .eq('id', ruleId);
+exports.getAllRules = async (tenantId) => {
+    return await rulesDAO.getAllRules(tenantId);
+};
 
-    if (error) {
-        throw error;
+exports.applyRules = async (tenantId, inputData) => {
+    const { data: rules, error } = await rulesDAO.getAllRules(tenantId);
+    if (error) throw new Error('Failed to fetch rules');
+
+    const engine = new Engine();
+
+    for (const rule of rules) {
+        engine.addRule({
+            conditions: rule.conditions,
+            event: rule.actions,
+            name: rule.name,
+            priority: rule.priority
+        });
     }
 
-    return data;
+    const results = await engine.run(inputData);
+    return results.events;
 };

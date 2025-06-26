@@ -1,18 +1,16 @@
-import { Router } from 'express';
-import {
-  createRule,
-  getAllRules,
-  updateRule,
-  toggleRuleStatus,
-  deleteRule,
-} from '../controllers/rules.controller';
+const express = require('express');
+const router = express.Router();
+const controller = require('../controllers/rules.controller');
 
-const router = Router();
 
-router.post('/api/v1/rules', createRule);
-router.get('/api/v1/rules', getAllRules);
-router.put('/api/v1/rules/:id', updateRule);
-router.patch('/api/v1/rules/:id/status', toggleRuleStatus);
-router.delete('/api/v1/rules/:id', deleteRule);
+// Original endpoints
+router.put('/:id', controller.updateRule);
+router.delete('/:id', controller.deleteRule);
+router.get('/', controller.getAllRules);
+router.post('/apply', controller.applyRules);
 
-export default router;
+// Enhanced create endpoint with Gemini NLP
+router.post('/create', controller.parseAndCreateRule);
+
+module.exports = router;
+    
