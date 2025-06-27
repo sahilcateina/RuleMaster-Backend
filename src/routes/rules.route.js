@@ -13,4 +13,4 @@ router.post('/apply', controller.applyRules);
 router.post('/create', controller.parseAndCreateRule);
 
 module.exports = router;
-    
+        
